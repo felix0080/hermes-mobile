@@ -16,13 +16,21 @@ class ChatProvider extends ChangeNotifier {
   String? _sessionId;
   bool _isLoading = false;
   bool _isSpeaking = false;
+  bool _isConnected = true;
   StreamSubscription<String>? _streamSub;
 
   List<Message> get messages => List.unmodifiable(_messages);
   bool get isLoading => _isLoading;
   bool get isListening => _speech.isListening;
   bool get isSpeaking => _isSpeaking;
+  bool get isConnected => _isConnected;
   SpeechService get speech => _speech;
+
+  /// Check server connection and update status.
+  Future<void> checkConnection() async {
+    _isConnected = await _api.healthCheck();
+    notifyListeners();
+  }
 
   /// Add a user message and get AI response.
   Future<void> sendMessage(String content) async {
@@ -141,6 +149,18 @@ class ChatProvider extends ChangeNotifier {
     _streamSub?.cancel();
     _messages.clear();
     _sessionId = null;
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  /// Cancel the current streaming response.
+  void cancelStreaming() {
+    _streamSub?.cancel();
+    if (_messages.isNotEmpty && _messages.last.isStreaming) {
+      _messages[_messages.length - 1] = _messages.last.copyWith(
+        isStreaming: false,
+      );
+    }
     _isLoading = false;
     notifyListeners();
   }

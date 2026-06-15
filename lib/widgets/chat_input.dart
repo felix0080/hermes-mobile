@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class ChatInput extends StatefulWidget {
   final Function(String) onSend;
   final VoidCallback? onVoiceInput;
+  final VoidCallback? onCancel;
   final bool isLoading;
   final bool isListening;
 
@@ -10,6 +11,7 @@ class ChatInput extends StatefulWidget {
     super.key,
     required this.onSend,
     this.onVoiceInput,
+    this.onCancel,
     required this.isLoading,
     required this.isListening,
   });
@@ -96,17 +98,12 @@ class _ChatInputState extends State<ChatInput> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
             child: widget.isLoading
-                ? const SizedBox(
-                    key: ValueKey('loading'),
-                    width: 48,
-                    height: 48,
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
+                ? IconButton(
+                    key: const ValueKey('stop'),
+                    icon: const Icon(Icons.stop_rounded),
+                    color: Colors.red,
+                    onPressed: widget.onCancel,
+                    tooltip: 'Stop',
                   )
                 : IconButton(
                     key: const ValueKey('send'),

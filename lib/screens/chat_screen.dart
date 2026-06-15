@@ -27,10 +27,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final settings = context.read<SettingsProvider>();
     final server = settings.activeServer;
     if (server != null) {
-      context.read<ChatProvider>().switchServer(
-            baseUrl: server.baseUrl,
-            apiKey: server.apiKey,
-          );
+      final chat = context.read<ChatProvider>();
+      chat.switchServer(
+        baseUrl: server.baseUrl,
+        apiKey: server.apiKey,
+      );
+      chat.checkConnection();
     }
   }
 
@@ -56,6 +58,15 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: chat.isConnected ? Colors.green : Colors.red,
+              ),
+            ),
+            const SizedBox(width: 8),
             const Text('Hermes'),
             if (settings.servers.length > 1) ...[
               const SizedBox(width: 4),
@@ -150,6 +161,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _scrollToBottom();
               }
             },
+            onCancel: () => chat.cancelStreaming(),
             isLoading: chat.isLoading,
             isListening: chat.isListening,
           ),
