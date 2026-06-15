@@ -1,0 +1,37 @@
+# Flutter
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+*.lock
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+android/*.iml
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Runner.xcworkspace/xcuserdata/
+
+# macOS
+macos/Pods/
+.macos/
+
+# Flutter generated
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Misc
+*.swp
+*.swo
+.DS_Store
+*.g.dart
+*.freezed.dart
+coverage/
