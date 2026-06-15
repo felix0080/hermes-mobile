@@ -115,7 +115,7 @@ class _ChatInputState extends State<ChatInput> {
                     ),
                     color: _hasText
                         ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurface.withOpacity(0.4),
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.4),
                     onPressed: _hasText ? _send : null,
                     tooltip: 'Send',
                   ),

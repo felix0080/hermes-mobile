@@ -28,8 +28,8 @@ class SpeechService {
 
     _isListening = true;
     final result = await _speech.listen(
-      localeId: 'zh_CN',
       listenOptions: stt.SpeechListenOptions(
+        localeId: 'zh_CN',
         autoPunctuation: true,
       ),
     );
@@ -47,20 +47,23 @@ class SpeechService {
     _isListening = false;
   }
 
+  /// Whether TTS is currently speaking (tracked internally).
+  bool _speaking = false;
+
+  bool get isCurrentlySpeaking => _speaking;
+
   /// Speak the given text.
   Future<void> speak(String text) async {
     await initTts();
+    _speaking = true;
     await _tts.speak(text);
+    _speaking = false;
   }
 
   /// Stop speaking.
   Future<void> stopSpeaking() async {
     await _tts.stop();
-  }
-
-  /// Whether TTS is currently speaking.
-  Future<bool> isSpeaking() async {
-    return await _tts.isSpeaking;
+    _speaking = false;
   }
 
   void dispose() {

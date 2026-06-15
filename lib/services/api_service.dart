@@ -68,8 +68,9 @@ class ApiService {
       ),
     );
 
-    final stream = response.data!.stream
-        .transform(utf8.decoder)
+    final rawStream = response.data!.stream;
+    final stream = rawStream
+        .map((bytes) => utf8.decode(bytes))
         .transform(const LineSplitter());
 
     await for (final line in stream) {
