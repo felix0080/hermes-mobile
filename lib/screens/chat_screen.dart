@@ -33,6 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
         apiKey: server.apiKey,
       );
       chat.checkConnection();
+      chat.init();
     }
   }
 
@@ -106,6 +107,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_comment),
+            onPressed: () => chat.newConversation(),
+            tooltip: 'New chat',
+          ),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () => Navigator.pushNamed(context, '/conversations'),

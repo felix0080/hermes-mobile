@@ -2,16 +2,21 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../models/conversation.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/speech_service.dart';
+import '../services/storage_service.dart';
 
 /// Manages chat messages and API communication.
 class ChatProvider extends ChangeNotifier {
   final ApiService _api = ApiService();
   final SpeechService _speech = SpeechService();
+  final StorageService _storage = StorageService();
   final Uuid _uuid = const Uuid();
 
+  String? _activeConversationId;
+  List<Conversation> _conversations = [];
   final List<Message> _messages = [];
   String? _sessionId;
   bool _isLoading = false;
@@ -20,11 +25,65 @@ class ChatProvider extends ChangeNotifier {
   StreamSubscription<String>? _streamSub;
 
   List<Message> get messages => List.unmodifiable(_messages);
+  List<Conversation> get conversations => List.unmodifiable(_conversations);
+  String? get activeConversationId => _activeConversationId;
   bool get isLoading => _isLoading;
   bool get isListening => _speech.isListening;
   bool get isSpeaking => _isSpeaking;
   bool get isConnected => _isConnected;
   SpeechService get speech => _speech;
+
+  /// Initialize storage and load latest conversation.
+  Future<void> init() async {
+    await _storage.open();
+    _conversations = await _storage.listConversations();
+    if (_conversations.isNotEmpty) {
+      await loadConversation(_conversations.first.id);
+    } else {
+      await newConversation();
+    }
+    notifyListeners();
+  }
+
+  /// Load messages for a conversation from storage.
+  Future<void> loadConversation(String id) async {
+    _streamSub?.cancel();
+    _activeConversationId = id;
+    _messages.clear();
+    _sessionId = null;
+    _isLoading = false;
+
+    final msgs = await _storage.getMessages(id);
+    _messages.addAll(msgs);
+    _conversations = await _storage.listConversations();
+    notifyListeners();
+  }
+
+  /// Create a new conversation.
+  Future<void> newConversation() async {
+    _streamSub?.cancel();
+    final conv = await _storage.createConversation(title: 'New Chat');
+    _activeConversationId = conv.id;
+    _messages.clear();
+    _sessionId = null;
+    _isLoading = false;
+    _conversations = await _storage.listConversations();
+    notifyListeners();
+  }
+
+  /// Delete a conversation.
+  Future<void> deleteConversation(String id) async {
+    await _storage.deleteConversation(id);
+    _conversations = await _storage.listConversations();
+    if (id == _activeConversationId) {
+      if (_conversations.isNotEmpty) {
+        await loadConversation(_conversations.first.id);
+      } else {
+        await newConversation();
+      }
+    }
+    notifyListeners();
+  }
 
   /// Check server connection and update status.
   Future<void> checkConnection() async {
@@ -32,11 +91,28 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Auto-title conversation from first user message.
+  void _autoTitle(String text) {
+    if (_activeConversationId == null) return;
+    final conv = _conversations.firstWhere(
+      (c) => c.id == _activeConversationId,
+      orElse: () => _conversations.first,
+    );
+    if (conv.title == 'New Chat') {
+      final title = text.length > 30 ? '${text.substring(0, 30)}...' : text;
+      _storage.renameConversation(_activeConversationId!, title);
+      _storage.listConversations().then((list) {
+        _conversations = list;
+        notifyListeners();
+      });
+    }
+  }
+
   /// Add a user message and get AI response.
   Future<void> sendMessage(String content) async {
     if (content.trim().isEmpty || _isLoading) return;
+    if (_activeConversationId == null) await newConversation();
 
-    // Add user message
     final userMsg = Message(
       id: _uuid.v4(),
       content: content.trim(),
@@ -44,7 +120,12 @@ class ChatProvider extends ChangeNotifier {
       timestamp: DateTime.now(),
     );
     _messages.add(userMsg);
+    await _storage.addMessage(_activeConversationId!, userMsg);
+    _conversations = await _storage.listConversations();
     notifyListeners();
+
+    // Auto-title
+    _autoTitle(content.trim());
 
     // Add placeholder for streaming
     final assistantMsg = Message(
@@ -58,7 +139,6 @@ class ChatProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // Build message history for API
     final apiMessages = _buildApiMessages();
 
     try {
@@ -77,27 +157,36 @@ class ChatProvider extends ChangeNotifier {
           notifyListeners();
         },
         onDone: () {
-          _messages[_messages.length - 1] = assistantMsg.copyWith(
+          final finalMsg = assistantMsg.copyWith(
             content: buffer.toString(),
             isStreaming: false,
           );
+          _messages[_messages.length - 1] = finalMsg;
+          _storage.addMessage(_activeConversationId!, finalMsg);
+          _storage.listConversations().then((list) {
+            _conversations = list;
+          });
           _isLoading = false;
           notifyListeners();
         },
         onError: (error) {
-          _messages[_messages.length - 1] = assistantMsg.copyWith(
+          final errorMsg = assistantMsg.copyWith(
             content: 'Error: $error',
             isStreaming: false,
           );
+          _messages[_messages.length - 1] = errorMsg;
+          _storage.addMessage(_activeConversationId!, errorMsg);
           _isLoading = false;
           notifyListeners();
         },
       );
     } catch (e) {
-      _messages[_messages.length - 1] = assistantMsg.copyWith(
+      final errorMsg = assistantMsg.copyWith(
         content: 'Connection failed: $e',
         isStreaming: false,
       );
+      _messages[_messages.length - 1] = errorMsg;
+      _storage.addMessage(_activeConversationId!, errorMsg);
       _isLoading = false;
       notifyListeners();
     }
@@ -115,16 +204,12 @@ class ChatProvider extends ChangeNotifier {
   }
 
   /// Start voice input.
-  Future<String?> startListening() async {
-    return await _speech.listen();
-  }
+  Future<String?> startListening() async => _speech.listen();
 
-  /// Stop voice input and send transcribed text.
-  Future<void> stopListeningAndSend() async {
-    await _speech.stopListening();
-  }
+  /// Stop voice input.
+  Future<void> stopListeningAndSend() async => _speech.stopListening();
 
-  /// Toggle TTS playback for the last assistant message.
+  /// Toggle TTS playback.
   Future<void> toggleSpeech() async {
     if (_isSpeaking) {
       await _speech.stopSpeaking();
@@ -144,16 +229,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Clear current conversation.
-  void clearConversation() {
-    _streamSub?.cancel();
-    _messages.clear();
-    _sessionId = null;
-    _isLoading = false;
-    notifyListeners();
-  }
-
-  /// Cancel the current streaming response.
+  /// Cancel streaming.
   void cancelStreaming() {
     _streamSub?.cancel();
     if (_messages.isNotEmpty && _messages.last.isStreaming) {
@@ -165,13 +241,14 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update API config and clear conversation for new server.
+  /// Switch server and reload conversations for new context.
   void switchServer({
     required String baseUrl,
     required String apiKey,
   }) {
     _streamSub?.cancel();
     _api.updateConfig(baseUrl: baseUrl, apiKey: apiKey);
+    _activeConversationId = null;
     _messages.clear();
     _sessionId = null;
     _isLoading = false;
@@ -183,6 +260,7 @@ class ChatProvider extends ChangeNotifier {
   void dispose() {
     _streamSub?.cancel();
     _speech.dispose();
+    _storage.close();
     super.dispose();
   }
 }
