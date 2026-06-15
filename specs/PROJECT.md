@@ -206,3 +206,15 @@ hermes gateway run
 2. No attachment/file upload
 3. No offline mode
 4. Voice recognition quality depends on device STT engine (uses system default)
+
+## Common Pitfalls
+
+### macOS Sandbox Network Permission
+
+macOS debug builds require `com.apple.security.network.client` entitlement to make outgoing HTTP requests. Without it, the app launches but silently fails to connect to any server. The default Flutter template only includes `network.server` (incoming connections).
+
+Added in both `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`.
+
+### Android Build in China
+
+Gradle/Maven downloads timeout from default Google servers. See `android/gradle/wrapper/gradle-wrapper.properties` (Tencent mirror) and `android/settings.gradle.kts` (Aliyun mirrors).

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -26,19 +28,36 @@ class SpeechService {
     final available = await _speech.initialize();
     if (!available) return null;
 
+    final completer = Completer<String?>();
+    String lastWords = '';
+
     _isListening = true;
-    final result = await _speech.listen(
+    await _speech.listen(
+      onResult: (result) {
+        lastWords = result.recognizedWords;
+        if (result.finalResult) {
+          _isListening = false;
+          if (!completer.isCompleted) {
+            completer.complete(lastWords.isNotEmpty ? lastWords : null);
+          }
+        }
+      },
       listenOptions: stt.SpeechListenOptions(
         localeId: 'zh_CN',
         autoPunctuation: true,
       ),
     );
-    _isListening = false;
 
-    if (result.recognizedWords.isNotEmpty) {
-      return result.recognizedWords;
-    }
-    return null;
+    // Timeout after 30 seconds
+    Future.delayed(const Duration(seconds: 30), () {
+      if (!completer.isCompleted) {
+        _speech.stop();
+        _isListening = false;
+        completer.complete(lastWords.isNotEmpty ? lastWords : null);
+      }
+    });
+
+    return completer.future;
   }
 
   /// Stop listening.
