@@ -18,14 +18,20 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Sync API config
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final settings = context.read<SettingsProvider>();
-      context.read<ChatProvider>().updateApiConfig(
-            baseUrl: settings.baseUrl,
-            apiKey: settings.apiKey,
-          );
+      _syncServerConfig();
     });
+  }
+
+  void _syncServerConfig() {
+    final settings = context.read<SettingsProvider>();
+    final server = settings.activeServer;
+    if (server != null) {
+      context.read<ChatProvider>().switchServer(
+            baseUrl: server.baseUrl,
+            apiKey: server.apiKey,
+          );
+    }
   }
 
   void _scrollToBottom() {
@@ -43,20 +49,59 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final chat = context.watch<ChatProvider>();
+    final settings = context.watch<SettingsProvider>();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hermes'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Hermes'),
+            if (settings.servers.length > 1) ...[
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                initialValue: settings.activeServer?.id,
+                onSelected: (id) {
+                  settings.setActiveServer(id);
+                  _syncServerConfig();
+                },
+                itemBuilder: (_) => settings.servers.map((s) {
+                  final isActive = s.id == settings.activeServer?.id;
+                  return PopupMenuItem<String>(
+                    value: s.id,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isActive ? Icons.radio_button_checked : Icons.radio_button_off,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(s.name),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                child: Chip(
+                  label: Text(
+                    settings.activeServer?.name ?? 'No server',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  avatar: const Icon(Icons.dns, size: 14),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () => Navigator.pushNamed(context, '/conversations'),
-            tooltip: 'Conversations',
           ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
-            tooltip: 'Settings',
           ),
         ],
       ),
@@ -64,14 +109,20 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Expanded(
             child: chat.messages.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.chat_bubble_outline,
+                        const Icon(Icons.chat_bubble_outline,
                             size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
+                        const SizedBox(height: 16),
+                        if (settings.activeServer != null)
+                          Text(
+                            'Connected to ${settings.activeServer!.name}',
+                            style: const TextStyle(color: Colors.grey, fontSize: 14),
+                          ),
+                        const SizedBox(height: 4),
+                        const Text(
                           'Start a conversation',
                           style: TextStyle(color: Colors.grey, fontSize: 16),
                         ),

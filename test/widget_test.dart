@@ -103,8 +103,8 @@ void main() {
       expect(AppConfig.defaultBaseUrl, 'http://localhost:8642');
     });
 
-    test('defaultApiKey is empty', () {
-      expect(AppConfig.defaultApiKey, '');
+    test('defaultApiKey is hermes-mobile-dev', () {
+      expect(AppConfig.defaultApiKey, 'hermes-mobile-dev');
     });
 
     test('defaultModel is hermes-agent', () {

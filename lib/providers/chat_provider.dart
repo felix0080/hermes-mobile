@@ -145,12 +145,18 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update API config from settings.
-  void updateApiConfig({
+  /// Update API config and clear conversation for new server.
+  void switchServer({
     required String baseUrl,
     required String apiKey,
   }) {
+    _streamSub?.cancel();
     _api.updateConfig(baseUrl: baseUrl, apiKey: apiKey);
+    _messages.clear();
+    _sessionId = null;
+    _isLoading = false;
+    _isSpeaking = false;
+    notifyListeners();
   }
 
   @override
