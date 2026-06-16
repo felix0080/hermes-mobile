@@ -25,28 +25,37 @@ class SpeechService {
 
   /// Start listening for speech, returns transcribed text when done.
   Future<String?> listen() async {
-    final available = await _speech.initialize();
+    final available = await _speech.initialize(
+      onError: (_) {}, // Suppress init errors gracefully
+    );
     if (!available) return null;
 
     final completer = Completer<String?>();
     String lastWords = '';
 
     _isListening = true;
-    await _speech.listen(
-      onResult: (result) {
-        lastWords = result.recognizedWords;
-        if (result.finalResult) {
-          _isListening = false;
-          if (!completer.isCompleted) {
-            completer.complete(lastWords.isNotEmpty ? lastWords : null);
+    try {
+      await _speech.listen(
+        onResult: (result) {
+          lastWords = result.recognizedWords;
+          if (result.finalResult) {
+            _isListening = false;
+            if (!completer.isCompleted) {
+              completer.complete(lastWords.isNotEmpty ? lastWords : null);
+            }
           }
-        }
-      },
-      listenOptions: stt.SpeechListenOptions(
-        localeId: 'zh_CN',
-        autoPunctuation: true,
-      ),
-    );
+        },
+        listenOptions: stt.SpeechListenOptions(
+          autoPunctuation: true,
+        ),
+      );
+    } catch (_) {
+      _isListening = false;
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+      return completer.future;
+    }
 
     // Timeout after 30 seconds
     Future.delayed(const Duration(seconds: 30), () {
