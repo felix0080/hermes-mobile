@@ -14,6 +14,9 @@ dependencies:
   # HTTP client (OpenAI-compatible API)
   dio: ^5.7.0
 
+  # WebSocket (Relay mode)
+  web_socket_channel: ^3.0.2
+
   # State management
   provider: ^6.1.2
 
