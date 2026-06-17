@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
+  final VoidCallback? onRetry;
+  final VoidCallback? onDelete;
 
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == MessageRole.user;
     final theme = Theme.of(context);
 
-    return Align(
+    final bubble = Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
@@ -60,6 +68,55 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ),
                   ),
+      ),
+    );
+
+    // Don't show menu for streaming messages or loading
+    if (message.isStreaming) return bubble;
+
+    return GestureDetector(
+      onLongPress: () => _showContextMenu(context),
+      child: bubble,
+    );
+  }
+
+  void _showContextMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: message.content));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
+                );
+              },
+            ),
+            if (onRetry != null)
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Retry'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onRetry!.call();
+                },
+              ),
+            if (onDelete != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onDelete!.call();
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -12,6 +12,7 @@ class SettingsProvider extends ChangeNotifier {
   List<ServerConfig> _servers = [];
   String? _activeServerId;
   bool _autoPlayTts = false;
+  bool _darkMode = true;  // Default dark
 
   List<ServerConfig> get servers => List.unmodifiable(_servers);
   ServerConfig? get activeServer {
@@ -23,6 +24,7 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   bool get autoPlayTts => _autoPlayTts;
+  bool get darkMode => _darkMode;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -52,6 +54,7 @@ class SettingsProvider extends ChangeNotifier {
     }
 
     _autoPlayTts = prefs.getBool('auto_play_tts') ?? false;
+    _darkMode = prefs.getBool('dark_mode') ?? true;
     notifyListeners();
   }
 
@@ -108,6 +111,14 @@ class SettingsProvider extends ChangeNotifier {
     _autoPlayTts = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_play_tts', value);
+    notifyListeners();
+  }
+
+  /// Toggle dark mode.
+  Future<void> setDarkMode(bool value) async {
+    _darkMode = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('dark_mode', value);
     notifyListeners();
   }
 }

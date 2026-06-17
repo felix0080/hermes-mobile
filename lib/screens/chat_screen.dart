@@ -151,8 +151,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 8),
                     itemCount: chat.messages.length,
-                    itemBuilder: (_, i) =>
-                        MessageBubble(message: chat.messages[i]),
+                    itemBuilder: (_, i) => MessageBubble(
+                      message: chat.messages[i],
+                      onRetry: () => chat.retryLastMessage(),
+                      onDelete: () => chat.deleteMessage(chat.messages[i].id),
+                    ),
                   ),
           ),
           ChatInput(

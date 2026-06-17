@@ -241,6 +241,28 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Delete a single message by ID.
+  Future<void> deleteMessage(String messageId) async {
+    _messages.removeWhere((m) => m.id == messageId);
+    notifyListeners();
+  }
+
+  /// Retry the last user message (remove last assistant msg, resend).
+  Future<void> retryLastMessage() async {
+    if (_messages.isEmpty) return;
+    // Find last user message
+    final lastUserIndex = _messages.lastIndexWhere(
+      (m) => m.role == MessageRole.user,
+    );
+    if (lastUserIndex < 0) return;
+    final content = _messages[lastUserIndex].content;
+    // Remove everything from last user message onward
+    _messages.removeRange(lastUserIndex, _messages.length);
+    notifyListeners();
+    // Resend
+    await sendMessage(content);
+  }
+
   /// Switch server and reload conversations for new context.
   void switchServer({
     required String baseUrl,

@@ -45,6 +45,11 @@ class SettingsScreen extends StatelessWidget {
 
           // Preferences
           SwitchListTile(
+            title: const Text('Dark Mode'),
+            value: settings.darkMode,
+            onChanged: (v) => settings.setDarkMode(v),
+          ),
+          SwitchListTile(
             title: const Text('Auto-play TTS'),
             subtitle: const Text('Read responses aloud automatically'),
             value: settings.autoPlayTts,
