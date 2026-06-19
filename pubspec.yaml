@@ -29,6 +29,9 @@ dependencies:
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.2
 
+  # Image picker
+  image_picker: ^1.1.2
+
   # UI
   flutter_markdown: ^0.7.6
   google_fonts: ^6.2.1

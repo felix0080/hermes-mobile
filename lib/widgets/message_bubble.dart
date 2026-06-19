@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -19,6 +20,7 @@ class MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUser = message.role == MessageRole.user;
     final theme = Theme.of(context);
+    final hasImages = message.imagePaths.isNotEmpty;
 
     final bubble = Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -40,38 +42,45 @@ class MessageBubble extends StatelessWidget {
           ),
         ),
         child: message.isStreaming && message.content.isEmpty
-            ? const SizedBox(
-                width: 24,
-                height: 16,
-                child: Center(
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              )
-            : isUser
-                ? SelectableText(
-                    message.content,
-                    style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
-                  )
-                : MarkdownBody(
-                    data: message.content,
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet(
-                      p: TextStyle(color: theme.colorScheme.onSurface),
-                      code: TextStyle(
-                        backgroundColor: theme.colorScheme.surfaceContainer,
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                      ),
+            ? const SizedBox(width: 24, height: 16,
+                child: Center(child: SizedBox(width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))))
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Images
+                  if (hasImages) ...[
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: message.imagePaths.map((path) => ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(File(path),
+                            width: 120, height: 120, fit: BoxFit.cover),
+                      )).toList(),
                     ),
-                  ),
+                    if (message.content.isNotEmpty) const SizedBox(height: 8),
+                  ],
+                  // Text
+                  if (message.content.isNotEmpty)
+                    isUser
+                        ? SelectableText(message.content,
+                            style: TextStyle(color: theme.colorScheme.onPrimaryContainer))
+                        : MarkdownBody(
+                            data: message.content,
+                            selectable: true,
+                            styleSheet: MarkdownStyleSheet(
+                              p: TextStyle(color: theme.colorScheme.onSurface),
+                              code: TextStyle(backgroundColor: theme.colorScheme.surfaceContainer,
+                                  fontFamily: 'monospace', fontSize: 13),
+                            ),
+                          ),
+                ],
+              ),
       ),
     );
 
-    // Don't show menu for streaming messages or loading
     if (message.isStreaming) return bubble;
 
     return GestureDetector(
@@ -84,39 +93,22 @@ class MessageBubble extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: message.content));
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
-                );
-              },
-            ),
-            if (onRetry != null)
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: const Text('Retry'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  onRetry!.call();
-                },
-              ),
-            if (onDelete != null)
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
+        child: Wrap(children: [
+          ListTile(leading: const Icon(Icons.copy), title: const Text('Copy'),
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: message.content));
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)));
+            }),
+          if (onRetry != null)
+            ListTile(leading: const Icon(Icons.refresh), title: const Text('Retry'),
+              onTap: () { Navigator.pop(ctx); onRetry!.call(); }),
+          if (onDelete != null)
+            ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text('Delete', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  onDelete!.call();
-                },
-              ),
-          ],
-        ),
+                onTap: () { Navigator.pop(ctx); onDelete!.call(); }),
+        ]),
       ),
     );
   }

@@ -43,8 +43,9 @@ class ApiService {
   }
 
   /// Send a chat completion request and stream the response.
+  /// Supports multimodal messages with image_url content parts.
   Stream<String> chatStream({
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     String? sessionId,
   }) async* {
     final body = {

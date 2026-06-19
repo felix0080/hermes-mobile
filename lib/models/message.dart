@@ -4,6 +4,7 @@ class Message {
   final MessageRole role;
   final DateTime timestamp;
   final bool isStreaming;
+  final List<String> imagePaths;
 
   const Message({
     required this.id,
@@ -11,11 +12,13 @@ class Message {
     required this.role,
     required this.timestamp,
     this.isStreaming = false,
+    this.imagePaths = const [],
   });
 
   Message copyWith({
     String? content,
     bool? isStreaming,
+    List<String>? imagePaths,
   }) {
     return Message(
       id: id,
@@ -23,22 +26,23 @@ class Message {
       role: role,
       timestamp: timestamp,
       isStreaming: isStreaming ?? this.isStreaming,
+      imagePaths: imagePaths ?? this.imagePaths,
     );
   }
 
   Map<String, dynamic> toMap() => {
-    'id': id,
-    'content': content,
-    'role': role.name,
-    'timestamp': timestamp.toIso8601String(),
-  };
+        'id': id,
+        'content': content,
+        'role': role.name,
+        'timestamp': timestamp.toIso8601String(),
+      };
 
   factory Message.fromMap(Map<String, dynamic> map) => Message(
-    id: map['id'] as String,
-    content: map['content'] as String,
-    role: MessageRole.fromString(map['role'] as String),
-    timestamp: DateTime.parse(map['timestamp'] as String),
-  );
+        id: map['id'] as String,
+        content: map['content'] as String,
+        role: MessageRole.fromString(map['role'] as String),
+        timestamp: DateTime.parse(map['timestamp'] as String),
+      );
 }
 
 enum MessageRole {
@@ -47,7 +51,7 @@ enum MessageRole {
   system;
 
   static MessageRole fromString(String s) => MessageRole.values.firstWhere(
-    (e) => e.name == s,
-    orElse: () => MessageRole.user,
-  );
+        (e) => e.name == s,
+        orElse: () => MessageRole.user,
+      );
 }

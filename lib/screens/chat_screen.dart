@@ -159,8 +159,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
           ),
           ChatInput(
-            onSend: (text) {
-              chat.sendMessage(text);
+            onSend: (text, images) {
+              chat.sendMessage(text, imagePaths: images);
               _scrollToBottom();
             },
             onVoiceInput: () async {

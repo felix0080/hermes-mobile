@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -171,8 +173,8 @@ class ChatProvider extends ChangeNotifier {
 
 
   /// Add a user message and get AI response.
-  Future<void> sendMessage(String content) async {
-    if (content.trim().isEmpty || _isLoading) return;
+  Future<void> sendMessage(String content, {List<String> imagePaths = const []}) async {
+    if ((content.trim().isEmpty && imagePaths.isEmpty) || _isLoading) return;
     if (_activeConversationId == null) await newConversation();
 
     final userMsg = Message(
@@ -180,11 +182,11 @@ class ChatProvider extends ChangeNotifier {
       content: content.trim(),
       role: MessageRole.user,
       timestamp: DateTime.now(),
+      imagePaths: imagePaths,
     );
     _messages.add(userMsg);
     await _storage.addMessage(_activeConversationId!, userMsg);
     notifyListeners();
-
     // Add placeholder for streaming
     final assistantMsg = Message(
       id: _uuid.v4(),
@@ -249,13 +251,34 @@ class ChatProvider extends ChangeNotifier {
   }
 
   /// Build OpenAI-format message list from local history.
-  List<Map<String, String>> _buildApiMessages() {
+  /// Supports multimodal content with image_url parts.
+  List<Map<String, dynamic>> _buildApiMessages() {
     return _messages
         .where((m) => !m.isStreaming || m.content.isNotEmpty)
-        .map((m) => {
-              'role': m.role.name,
-              'content': m.content,
-            })
+        .map((m) {
+          if (m.imagePaths.isNotEmpty) {
+            // Multimodal: content is an array of text + image_url parts
+            final parts = <Map<String, dynamic>>[];
+            if (m.content.isNotEmpty) {
+              parts.add({'type': 'text', 'text': m.content});
+            }
+            for (final path in m.imagePaths) {
+              // Read image file and encode as base64 data URL
+              final bytes = _readFileSync(path);
+              if (bytes != null) {
+                final b64 = base64Encode(bytes);
+                final ext = path.split('.').last.toLowerCase();
+                final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+                parts.add({
+                  'type': 'image_url',
+                  'image_url': {'url': 'data:$mime;base64,$b64'},
+                });
+              }
+            }
+            return {'role': m.role.name, 'content': parts};
+          }
+          return {'role': m.role.name, 'content': m.content};
+        })
         .toList();
   }
 
@@ -332,6 +355,16 @@ class ChatProvider extends ChangeNotifier {
     _isLoading = false;
     _isSpeaking = false;
     notifyListeners();
+  }
+
+  /// Synchronous file read for image encoding.
+  static List<int>? _readFileSync(String path) {
+    try {
+      final bytes = File(path).readAsBytesSync();
+      return bytes;
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
