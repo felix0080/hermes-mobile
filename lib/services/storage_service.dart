@@ -149,8 +149,6 @@ class StorageService {
     if (folderId != null) {
       where += ' AND folder_id = ?';
       args.add(folderId);
-    } else if (folderId == null) {
-      // When explicitly null, get unfiled ones only if serverId is also null
     }
     if (serverId != null) {
       where += ' AND server_id = ?';

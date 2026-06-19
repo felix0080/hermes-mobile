@@ -204,7 +204,7 @@ class _TreeTileState extends State<_TreeTile> {
               actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
                 TextButton(onPressed: () => Navigator.pop(c, ctrl.text.trim()), child: const Text('OK'))],
             ));
-            if (name != null && name.isNotEmpty) widget.chat.renameFolder(conv.id, name);
+            if (name != null && name.isNotEmpty) widget.chat.renameConversation(conv.id, name);
           }),
           ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Delete', style: TextStyle(color: Colors.red)), onTap: () {
             Navigator.pop(ctx);

@@ -31,7 +31,7 @@ class ChatProvider extends ChangeNotifier {
   List<Message> get messages => List.unmodifiable(_messages);
   List<Conversation> get conversations => List.unmodifiable(_conversations);
   List<Folder> get folders => List.unmodifiable(_folders);
-  List<TreeNode> get tree => _tree;
+  List<TreeNode> get tree => List.unmodifiable(_tree);
   String? get activeConversationId => _activeConversationId;
   bool get isLoading => _isLoading;
   bool get isListening => _speech.isListening;
@@ -151,6 +151,11 @@ class ChatProvider extends ChangeNotifier {
     await _refreshData();
   }
 
+  Future<void> renameConversation(String id, String title) async {
+    await _storage.renameConversation(id, title);
+    await _refreshData();
+  }
+
   /// Get binding server ID for a conversation. Returns non-null to trigger auto-switch.
   Future<String?> getConversationServer(String convId) async {
     final convs = await _storage.allConversations();
@@ -163,9 +168,6 @@ class ChatProvider extends ChangeNotifier {
     _isConnected = await _api.healthCheck();
     notifyListeners();
   }
-
-
-  // Auto-title
 
 
   /// Add a user message and get AI response.
@@ -181,7 +183,6 @@ class ChatProvider extends ChangeNotifier {
     );
     _messages.add(userMsg);
     await _storage.addMessage(_activeConversationId!, userMsg);
-    _buildTree();
     notifyListeners();
 
     // Add placeholder for streaming
