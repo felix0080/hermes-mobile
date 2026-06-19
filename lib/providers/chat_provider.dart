@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
+import '../models/folder.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../services/speech_service.dart';
@@ -16,8 +17,11 @@ class ChatProvider extends ChangeNotifier {
   final Uuid _uuid = const Uuid();
 
   String? _activeConversationId;
+  String? _currentServerId;
+  List<Folder> _folders = [];
   List<Conversation> _conversations = [];
   final List<Message> _messages = [];
+  List<TreeNode> _tree = [];
   String? _sessionId;
   bool _isLoading = false;
   bool _isSpeaking = false;
@@ -26,6 +30,8 @@ class ChatProvider extends ChangeNotifier {
 
   List<Message> get messages => List.unmodifiable(_messages);
   List<Conversation> get conversations => List.unmodifiable(_conversations);
+  List<Folder> get folders => List.unmodifiable(_folders);
+  List<TreeNode> get tree => _tree;
   String? get activeConversationId => _activeConversationId;
   bool get isLoading => _isLoading;
   bool get isListening => _speech.isListening;
@@ -33,16 +39,54 @@ class ChatProvider extends ChangeNotifier {
   bool get isConnected => _isConnected;
   SpeechService get speech => _speech;
 
-  /// Initialize storage and load latest conversation.
-  Future<void> init() async {
+  /// Initialize storage and load data.
+  Future<void> init({String? serverId}) async {
     await _storage.open();
-    _conversations = await _storage.listConversations();
-    if (_conversations.isNotEmpty) {
-      await loadConversation(_conversations.first.id);
-    } else {
-      await newConversation();
-    }
+    _currentServerId = serverId;
+    await _refreshData();
+  }
+
+  /// Reload folders, conversations, and tree.
+  Future<void> _refreshData() async {
+    _folders = await _storage.allFolders();
+    _conversations = await _storage.allConversations();
+    _buildTree();
     notifyListeners();
+  }
+
+  /// Build tree structure for UI.
+  void _buildTree() {
+    _tree = [];
+    if (_folders.isEmpty && _conversations.isEmpty) return;
+
+    final folderMap = <String?, List<Folder>>{};
+    for (final f in _folders) {
+      folderMap.putIfAbsent(f.parentId, () => []).add(f);
+    }
+    final convMap = <String?, List<Conversation>>{};
+    for (final c in _conversations) {
+      convMap.putIfAbsent(c.folderId, () => []).add(c);
+    }
+
+    void addNode(String? parentId, int depth) {
+      final folders = folderMap[parentId] ?? [];
+      for (final f in folders) {
+        _tree.add(TreeNode(folder: f, depth: depth, isExpanded: false));
+        final convs = convMap[f.id] ?? [];
+        for (final c in convs) {
+          _tree.add(TreeNode(conversation: c, depth: depth + 1));
+        }
+        addNode(f.id, depth + 1);
+      }
+      if (parentId == null) {
+        final convs = convMap[null] ?? [];
+        for (final c in convs) {
+          _tree.add(TreeNode(conversation: c, depth: depth));
+        }
+      }
+    }
+
+    addNode(null, 0);
   }
 
   /// Load messages for a conversation from storage.
@@ -55,34 +99,63 @@ class ChatProvider extends ChangeNotifier {
 
     final msgs = await _storage.getMessages(id);
     _messages.addAll(msgs);
-    _conversations = await _storage.listConversations();
     notifyListeners();
   }
 
   /// Create a new conversation.
-  Future<void> newConversation() async {
+  Future<Conversation> newConversation({String? folderId}) async {
     _streamSub?.cancel();
-    final conv = await _storage.createConversation(title: 'New Chat');
+    final conv = await _storage.createConversation(
+      title: 'New Chat',
+      folderId: folderId,
+      serverId: _currentServerId,
+    );
     _activeConversationId = conv.id;
     _messages.clear();
     _sessionId = null;
     _isLoading = false;
-    _conversations = await _storage.listConversations();
-    notifyListeners();
+    await _refreshData();
+    return conv;
   }
 
   /// Delete a conversation.
   Future<void> deleteConversation(String id) async {
     await _storage.deleteConversation(id);
-    _conversations = await _storage.listConversations();
     if (id == _activeConversationId) {
-      if (_conversations.isNotEmpty) {
-        await loadConversation(_conversations.first.id);
-      } else {
-        await newConversation();
-      }
+      _activeConversationId = null;
+      _messages.clear();
     }
-    notifyListeners();
+    await _refreshData();
+  }
+
+  // ─────────────────────────── folders ───────────────────────────
+
+  Future<Folder> createFolder({required String name, String? parentId}) async {
+    final f = await _storage.createFolder(name: name, parentId: parentId);
+    await _refreshData();
+    return f;
+  }
+
+  Future<void> deleteFolder(String id) async {
+    await _storage.deleteFolder(id);
+    await _refreshData();
+  }
+
+  Future<void> renameFolder(String id, String name) async {
+    await _storage.renameFolder(id, name);
+    await _refreshData();
+  }
+
+  Future<void> moveConversation(String convId, String? folderId) async {
+    await _storage.updateConversationFolder(convId, folderId);
+    await _refreshData();
+  }
+
+  /// Get binding server ID for a conversation. Returns non-null to trigger auto-switch.
+  Future<String?> getConversationServer(String convId) async {
+    final convs = await _storage.allConversations();
+    final conv = convs.firstWhere((c) => c.id == convId, orElse: () => convs.first);
+    return conv.serverId;
   }
 
   /// Check server connection and update status.
@@ -91,22 +164,9 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Auto-title conversation from first user message.
-  void _autoTitle(String text) {
-    if (_activeConversationId == null) return;
-    final conv = _conversations.firstWhere(
-      (c) => c.id == _activeConversationId,
-      orElse: () => _conversations.first,
-    );
-    if (conv.title == 'New Chat') {
-      final title = text.length > 30 ? '${text.substring(0, 30)}...' : text;
-      _storage.renameConversation(_activeConversationId!, title);
-      _storage.listConversations().then((list) {
-        _conversations = list;
-        notifyListeners();
-      });
-    }
-  }
+
+  // Auto-title
+
 
   /// Add a user message and get AI response.
   Future<void> sendMessage(String content) async {
@@ -121,11 +181,8 @@ class ChatProvider extends ChangeNotifier {
     );
     _messages.add(userMsg);
     await _storage.addMessage(_activeConversationId!, userMsg);
-    _conversations = await _storage.listConversations();
+    _buildTree();
     notifyListeners();
-
-    // Auto-title
-    _autoTitle(content.trim());
 
     // Add placeholder for streaming
     final assistantMsg = Message(
@@ -163,9 +220,7 @@ class ChatProvider extends ChangeNotifier {
           );
           _messages[_messages.length - 1] = finalMsg;
           _storage.addMessage(_activeConversationId!, finalMsg);
-          _storage.listConversations().then((list) {
-            _conversations = list;
-          });
+          _buildTree();
           _isLoading = false;
           notifyListeners();
         },
@@ -285,4 +340,21 @@ class ChatProvider extends ChangeNotifier {
     _storage.close();
     super.dispose();
   }
+}
+
+/// Tree node for folder/conversation hierarchy display.
+class TreeNode {
+  final Folder? folder;
+  final Conversation? conversation;
+  final int depth;
+  bool isExpanded;
+
+  TreeNode({
+    this.folder,
+    this.conversation,
+    required this.depth,
+    this.isExpanded = false,
+  });
+
+  bool get isFolder => folder != null;
 }

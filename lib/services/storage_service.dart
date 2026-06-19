@@ -3,24 +3,20 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/conversation.dart';
+import '../models/folder.dart';
 import '../models/message.dart';
 
-/// SQLite-backed persistence for conversations and messages.
-///
-/// Schema:
-///   conversations(id TEXT PK, title, created_at, updated_at)
-///   messages(id TEXT PK, conversation_id FK, content, role, timestamp)
+/// SQLite-backed persistence for folders, conversations, and messages.
 class StorageService {
   static const String _dbName = 'hermes.db';
-  static const int _schemaVersion = 1;
+  static const int _schemaVersion = 2;
 
+  static const String _tableFolders = 'folders';
   static const String _tableConversations = 'conversations';
   static const String _tableMessages = 'messages';
 
   Database? _db;
 
-  /// Open (or reuse) the underlying database. Pass [databasePath] to override
-  /// the default location — primarily for tests.
   Future<void> open({String? databasePath}) async {
     if (_db != null) return;
     final path = databasePath ?? await _defaultPath();
@@ -29,11 +25,10 @@ class StorageService {
       version: _schemaVersion,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
-  /// Close the database. Safe to call multiple times; subsequent [open] will
-  /// re-create the handle.
   Future<void> close() async {
     await _db?.close();
     _db = null;
@@ -49,29 +44,37 @@ class StorageService {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE $_tableConversations (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE $_tableMessages (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        content TEXT NOT NULL,
-        role TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        FOREIGN KEY (conversation_id)
-          REFERENCES $_tableConversations(id) ON DELETE CASCADE
-      )
-    ''');
-    await db.execute('''
-      CREATE INDEX idx_messages_conversation_id
-        ON $_tableMessages(conversation_id)
-    ''');
+    await db.execute('''CREATE TABLE $_tableFolders (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT,
+      sort_order INTEGER DEFAULT 0, created_at TEXT NOT NULL,
+      FOREIGN KEY (parent_id) REFERENCES $_tableFolders(id) ON DELETE CASCADE
+    )''');
+    await db.execute('''CREATE TABLE $_tableConversations (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL,
+      folder_id TEXT, server_id TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      FOREIGN KEY (folder_id) REFERENCES $_tableFolders(id) ON DELETE SET NULL
+    )''');
+    await db.execute('''CREATE TABLE $_tableMessages (
+      id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+      content TEXT NOT NULL, role TEXT NOT NULL, timestamp TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES $_tableConversations(id) ON DELETE CASCADE
+    )''');
+    await db.execute('CREATE INDEX idx_msg_conv ON $_tableMessages(conversation_id)');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''CREATE TABLE $_tableFolders (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT,
+        sort_order INTEGER DEFAULT 0, created_at TEXT NOT NULL,
+        FOREIGN KEY (parent_id) REFERENCES $_tableFolders(id) ON DELETE CASCADE
+      )''');
+      try {
+        await db.execute('ALTER TABLE $_tableConversations ADD COLUMN folder_id TEXT');
+        await db.execute('ALTER TABLE $_tableConversations ADD COLUMN server_id TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<Database> _requireDb() async {
@@ -79,15 +82,59 @@ class StorageService {
     return _db!;
   }
 
-  // --------------------------- conversations ---------------------------
+  // ─────────────────────────── folders ───────────────────────────
 
-  /// Insert a new conversation row and return the inserted record.
-  Future<Conversation> createConversation({required String title}) async {
+  Future<Folder> createFolder({required String name, String? parentId}) async {
+    final db = await _requireDb();
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final f = Folder(id: id, name: name, parentId: parentId, createdAt: DateTime.now());
+    await db.insert(_tableFolders, f.toMap());
+    return f;
+  }
+
+  Future<List<Folder>> listFolders({String? parentId}) async {
+    final db = await _requireDb();
+    final rows = parentId == null
+        ? await db.query(_tableFolders, where: 'parent_id IS NULL', orderBy: 'sort_order')
+        : await db.query(_tableFolders, where: 'parent_id = ?', whereArgs: [parentId], orderBy: 'sort_order');
+    return rows.map(Folder.fromMap).toList();
+  }
+
+  Future<List<Folder>> allFolders() async {
+    final db = await _requireDb();
+    final rows = await db.query(_tableFolders, orderBy: 'sort_order');
+    return rows.map(Folder.fromMap).toList();
+  }
+
+  Future<void> renameFolder(String id, String name) async {
+    final db = await _requireDb();
+    await db.update(_tableFolders, {'name': name}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> moveFolder(String id, String? parentId) async {
+    final db = await _requireDb();
+    await db.update(_tableFolders, {'parent_id': parentId}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteFolder(String id) async {
+    final db = await _requireDb();
+    await db.delete(_tableFolders, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ──────────────────────── conversations ────────────────────────
+
+  Future<Conversation> createConversation({
+    required String title,
+    String? folderId,
+    String? serverId,
+  }) async {
     final db = await _requireDb();
     final now = DateTime.now();
     final conv = Conversation(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: title,
+      folderId: folderId,
+      serverId: serverId,
       createdAt: now,
       updatedAt: now,
     );
@@ -95,83 +142,72 @@ class StorageService {
     return conv;
   }
 
-  /// List all conversations sorted by updatedAt DESC, with message counts.
-  Future<List<Conversation>> listConversations() async {
+  Future<List<Conversation>> listConversations({String? folderId, String? serverId}) async {
     final db = await _requireDb();
-    final rows = await db.rawQuery('''
-      SELECT c.id AS id,
-             c.title AS title,
-             c.created_at AS created_at,
-             c.updated_at AS updated_at,
-             (SELECT COUNT(*) FROM $_tableMessages m
-               WHERE m.conversation_id = c.id) AS message_count
-      FROM $_tableConversations c
-      ORDER BY c.updated_at DESC
-    ''');
+    String where = '1=1';
+    List<dynamic> args = [];
+    if (folderId != null) {
+      where += ' AND folder_id = ?';
+      args.add(folderId);
+    } else if (folderId == null) {
+      // When explicitly null, get unfiled ones only if serverId is also null
+    }
+    if (serverId != null) {
+      where += ' AND server_id = ?';
+      args.add(serverId);
+    }
+    final rows = await db.rawQuery('''SELECT c.*, (SELECT COUNT(*) FROM $_tableMessages m
+      WHERE m.conversation_id = c.id) AS message_count
+      FROM $_tableConversations c WHERE $where ORDER BY c.updated_at DESC''', args);
     return rows.map(Conversation.fromMap).toList();
   }
 
-  /// Rename a conversation. No-op if [id] does not exist.
+  Future<List<Conversation>> allConversations() async {
+    final db = await _requireDb();
+    final rows = await db.rawQuery('''SELECT c.*, (SELECT COUNT(*) FROM $_tableMessages m
+      WHERE m.conversation_id = c.id) AS message_count
+      FROM $_tableConversations c ORDER BY c.updated_at DESC''');
+    return rows.map(Conversation.fromMap).toList();
+  }
+
+  Future<void> updateConversationFolder(String convId, String? folderId) async {
+    final db = await _requireDb();
+    await db.update(_tableConversations, {'folder_id': folderId}, where: 'id = ?', whereArgs: [convId]);
+  }
+
   Future<void> renameConversation(String id, String title) async {
     final db = await _requireDb();
-    await db.update(
-      _tableConversations,
-      {'title': title},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update(_tableConversations, {'title': title}, where: 'id = ?', whereArgs: [id]);
   }
 
-  /// Bump updatedAt on a conversation. Used to re-sort after activity.
   Future<void> touchConversation(String id, {DateTime? at}) async {
     final db = await _requireDb();
-    await db.update(
-      _tableConversations,
-      {'updated_at': (at ?? DateTime.now()).toIso8601String()},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update(_tableConversations, {'updated_at': (at ?? DateTime.now()).toIso8601String()},
+        where: 'id = ?', whereArgs: [id]);
   }
 
-  /// Delete a conversation and its messages (via cascade).
   Future<void> deleteConversation(String id) async {
     final db = await _requireDb();
-    await db.delete(
-      _tableConversations,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(_tableConversations, where: 'id = ?', whereArgs: [id]);
   }
 
-  // ------------------------------ messages -----------------------------
+  // ────────────────────────── messages ───────────────────────────
 
-  /// Persist a message and update its parent conversation's updatedAt.
   Future<void> addMessage(String conversationId, Message msg) async {
     final db = await _requireDb();
     await db.insert(_tableMessages, {
-      'id': msg.id,
-      'conversation_id': conversationId,
-      'content': msg.content,
-      'role': msg.role.name,
+      'id': msg.id, 'conversation_id': conversationId,
+      'content': msg.content, 'role': msg.role.name,
       'timestamp': msg.timestamp.toIso8601String(),
     });
-    await db.update(
-      _tableConversations,
-      {'updated_at': msg.timestamp.toIso8601String()},
-      where: 'id = ?',
-      whereArgs: [conversationId],
-    );
+    await db.update(_tableConversations, {'updated_at': msg.timestamp.toIso8601String()},
+        where: 'id = ?', whereArgs: [conversationId]);
   }
 
-  /// Fetch all messages for a conversation ordered by timestamp ASC.
   Future<List<Message>> getMessages(String conversationId) async {
     final db = await _requireDb();
-    final rows = await db.query(
-      _tableMessages,
-      where: 'conversation_id = ?',
-      whereArgs: [conversationId],
-      orderBy: 'timestamp ASC',
-    );
+    final rows = await db.query(_tableMessages,
+        where: 'conversation_id = ?', whereArgs: [conversationId], orderBy: 'timestamp ASC');
     return rows.map(Message.fromMap).toList();
   }
 }

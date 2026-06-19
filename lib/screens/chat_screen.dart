@@ -33,7 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
         apiKey: server.apiKey,
       );
       chat.checkConnection();
-      chat.init();
+      chat.init(serverId: server.id);
     }
   }
 
